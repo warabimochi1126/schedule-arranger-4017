@@ -7,6 +7,29 @@ const helmet = require('helmet');
 const session = require('express-session');
 const passport = require('passport');
 
+// DBモデルを読み込む
+const User = require('./models/user');
+const Schedule = require('./models/schedule');
+const Availability = require('./models/availability');
+const Candidate = require('./models/candidate');
+const Comment = require('./models/comment');
+
+/*
+ DBモデルのリレーション設定
+ User.sync()でusersテーブルを作成します.migrationと同じ動作だと思います
+ Schedule.belongsTo()でScheduleモデルとUserモデルを紐づけています.createdByを外部キーに設定している？(Userモデルに該当するカラムは無い)
+ */
+User.sync().then(async () => {
+  Schedule.belongsTo(User, {foreignKey: 'createdBy'});
+  Schedule.sync();
+  Comment.belongsTo(User, {foreignKey: 'userId'});
+  Comment.sync();
+  Availability.belongsTo(User, {foreignKey: 'userId'});
+  await Candidate.sync();
+  Availability.belongsTo(Candidate, {foreignKey: 'candidateId'});
+  Availability.sync();
+});
+
 const GitHubStrategy = require('passport-github2').Strategy;
 const GITHUB_CLIENT_ID = '2f831cb3d4aac02393aa';
 const GITHUB_CLIENT_SECRET = '9fbc340ac0175123695d2dedfbdf5a78df3b8067';
@@ -24,9 +47,17 @@ passport.use(new GitHubStrategy({
   clientSecret: GITHUB_CLIENT_SECRET,
   callbackURL: 'http://localhost:8000/auth/github/callback'
 },
+/* GitHub認証実行後にUserモデルに対してGitHubから取得したIDとユーザ名を保存しています
+   User.upsert()でUserモデルに対してupdate.insertのどちらかを行います
+   主キー(UserモデルならuserId)が無ければinsert.あればupdateを行います
+*/
   function (accessToken, refreshToken, profile, done) {
-    process.nextTick(function () {
-      return done(null, profile);
+    process.nextTick(async function () {
+      await User.upsert({
+        userId: profile.id,
+        username: profile.username
+      });
+      done(null, profile);
     });
   }
 ));
